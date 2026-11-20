@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.db
+*.db-wal
+*.db-shm
+
+# Node
+node_modules/
+dist/
+
+# Secrets & Local Data
+.env
+.lumina_data/
+.lumina_quarantine/
