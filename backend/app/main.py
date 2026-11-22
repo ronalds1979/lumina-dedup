@@ -402,22 +402,32 @@ def list_groups(
             (*params, page_size, offset),
         ).fetchall()
 
-        result_groups = []
-        for g in groups:
-            g_dict = dict(g)
-            members = conn.execute(
-                """
-                SELECT m.id, m.path, m.folder, m.filename, m.ext, m.media_type,
+        # ⚡ Bolt: Batch-fetch all page group members in a single SQLite JOIN instead of N+1 queries per group
+        members_by_group: dict[int, list[dict]] = {}
+        group_ids = [g["id"] for g in groups]
+        if group_ids:
+            placeholders = ",".join("?" for _ in group_ids)
+            member_rows = conn.execute(
+                f"""
+                SELECT gm.group_id, m.id, m.path, m.folder, m.filename, m.ext, m.media_type,
                        m.size, m.mtime, m.width, m.height, m.exif_date, m.camera_model, m.status,
                        gm.similarity, gm.decision, gm.ai_score, gm.ai_reason
                 FROM duplicate_group_members gm
                 JOIN media_files m ON m.id = gm.file_id
-                WHERE gm.group_id = ?
+                WHERE gm.group_id IN ({placeholders})
                 ORDER BY m.size DESC, m.path ASC
                 """,
-                (g["id"],),
+                group_ids,
             ).fetchall()
-            g_dict["members"] = [dict(m) for m in members]
+            for m in member_rows:
+                m_dict = dict(m)
+                gid = m_dict.pop("group_id")
+                members_by_group.setdefault(gid, []).append(m_dict)
+
+        result_groups = []
+        for g in groups:
+            g_dict = dict(g)
+            g_dict["members"] = members_by_group.get(g["id"], [])
             result_groups.append(g_dict)
 
     return {
