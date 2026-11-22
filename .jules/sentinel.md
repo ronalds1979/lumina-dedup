@@ -1,0 +1,4 @@
+## 2026-11-22 - Unbounded Request Payloads Leading to O(N^2) Memory DoS & Unintended Removal Mode Fallback
+**Vulnerability:** FastAPI Pydantic request models in `backend/app/main.py` accepted unbounded `semantic_limit`, `max_distance`, `burst_seconds`, `semantic_threshold`, `CopilotRequest.message`, `ScanRequest.paths`, and unvalidated `ExecuteRemovalRequest.mode` strings.
+**Learning:** `run_semantic_dedup` computes an `O(N^2)` cosine similarity matrix (`vecs @ vecs.T`) and issues one Gemini embedding call per file, so an unbounded `semantic_limit` causes both memory exhaustion and API cost abuse; likewise, `execute_safe_removal` used `if mode == "trash": ... else:` which silently quarantined files on any unknown mode string.
+**Prevention:** Always define explicit Pydantic `Field(...)` bounds (including `allow_inf_nan=False` on floats) and `Literal[...]` enums on FastAPI request schemas.

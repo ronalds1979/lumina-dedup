@@ -5,14 +5,14 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import dedup as dedup_mod
 from . import gemini_ai as gemini_mod
@@ -86,44 +86,46 @@ def on_startup() -> None:
 
 
 # ---------- Request Models ----------
+# 🛡️ Sentinel: Enforce strict input bounds and enum literals on API payloads to prevent
+# O(N^2) memory exhaustion (semantic_limit), unbounded AI token/billing abuse, and silent mode fallback.
 
 class ScanRequest(BaseModel):
-    paths: list[str]
+    paths: list[str] = Field(..., min_length=1, max_length=50)
     extract_exif: bool = True
     reset_before_scan: bool = False
 
 
 class DedupRunRequest(BaseModel):
-    approach: str  # exact | visual | burst | semantic
-    max_distance: int = 5
-    burst_seconds: float = 3.0
-    folder_filter: Optional[str] = None
-    semantic_threshold: float = 0.92
-    semantic_limit: int = 200
+    approach: Literal["exact", "visual", "burst", "semantic"]
+    max_distance: int = Field(5, ge=0, le=16)
+    burst_seconds: float = Field(3.0, ge=0.0, le=3600.0, allow_inf_nan=False)
+    folder_filter: Optional[str] = Field(None, max_length=500)
+    semantic_threshold: float = Field(0.92, ge=0.5, le=1.0, allow_inf_nan=False)
+    semantic_limit: int = Field(200, ge=2, le=2000)
 
 
 class DecisionRequest(BaseModel):
-    file_id: int
-    decision: str  # keep | remove | undecided
+    file_id: int = Field(..., ge=1)
+    decision: Literal["keep", "remove", "undecided"]
 
 
 class AutoSelectRequest(BaseModel):
     rule: str  # keep_largest | keep_highest_res | keep_oldest | keep_newest | keep_cleanest_path | keep_in_folder
     approach: Optional[str] = None
     group_id: Optional[int] = None
-    reference_folder: Optional[str] = None
+    reference_folder: Optional[str] = Field(None, max_length=500)
 
 
 class ExecuteRemovalRequest(BaseModel):
     file_ids: Optional[list[int]] = None
     use_marked_remove: bool = False
     approach: Optional[str] = None
-    mode: str = "quarantine"  # quarantine | trash
+    mode: Literal["quarantine", "trash"] = "quarantine"
 
 
 class RestoreRequest(BaseModel):
     file_ids: Optional[list[int]] = None
-    batch_id: Optional[str] = None
+    batch_id: Optional[str] = Field(None, max_length=128)
 
 
 class AIAnalyzeRequest(BaseModel):
@@ -132,13 +134,13 @@ class AIAnalyzeRequest(BaseModel):
 
 
 class CopilotRequest(BaseModel):
-    message: str
-    previous_interaction_id: Optional[str] = None
+    message: str = Field(..., min_length=1, max_length=4000)
+    previous_interaction_id: Optional[str] = Field(None, max_length=256)
     model: str = "gemini-4-argon"
 
 
 class SettingsRequest(BaseModel):
-    gemini_api_key: str
+    gemini_api_key: str = Field(..., max_length=256)
 
 
 # ---------- Health & Settings ----------
