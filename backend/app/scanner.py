@@ -1,4 +1,5 @@
 import os
+import stat
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -7,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from PIL import Image, ExifTags
 
-from .config import ALL_MEDIA_EXTENSIONS, PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
+from .config import ALL_MEDIA_EXTENSIONS, BASE_DIR, DATA_DIR, DEFAULT_QUARANTINE_DIR, PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 from .database import db_session
 from . import media_utils  # noqa: F401 - applies Image.MAX_IMAGE_PIXELS guard
 
@@ -23,6 +24,31 @@ IGNORED_DIRS = {
 
 EXIF_DATE_TAG = 36867  # DateTimeOriginal
 EXIF_MODEL_TAG = 272   # Model
+
+
+def validate_scan_root(raw_path: str) -> str:
+    """Validate a user-supplied scan root against UNC leaks, reparse traversal, and protected dirs."""
+    # 🛡️ Sentinel: Block UNC/device paths before os.path/stat calls to prevent SMB Net-NTLM leaks
+    p = (raw_path or "").strip()
+    if not p or p.startswith(("\\\\", "//")):
+        raise ValueError(f"Network or device paths are not allowed: {raw_path}")
+    if os.path.islink(p):
+        raise ValueError(f"Symlink scan roots are not allowed: {raw_path}")
+    try:
+        lst = os.lstat(p)
+    except OSError as exc:
+        raise ValueError(f"Invalid scan directory: {raw_path}") from exc
+    reparse_attr = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if stat.S_ISLNK(lst.st_mode) or (reparse_attr and (getattr(lst, "st_file_attributes", 0) & reparse_attr)):
+        raise ValueError(f"Reparse-point scan roots are not allowed: {raw_path}")
+    resolved = Path(p).resolve()
+    if not resolved.is_dir() or len(resolved.parts) <= 1:
+        raise ValueError(f"Drive roots or non-directory paths are not allowed: {raw_path}")
+    protected = [BASE_DIR.resolve(), DATA_DIR.resolve(), DEFAULT_QUARANTINE_DIR.resolve()]
+    protected.extend(Path(os.environ[k]).resolve() for k in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData") if os.environ.get(k))
+    if any(resolved == b or resolved.is_relative_to(b) for b in protected):
+        raise ValueError(f"Protected system or application directory cannot be scanned: {raw_path}")
+    return str(resolved)
 
 
 @dataclass
@@ -150,8 +176,9 @@ def run_scan(paths: list[str], extract_exif: bool = True) -> None:
         pool = ThreadPoolExecutor(max_workers=8) if extract_exif else None
         try:
             for raw_root in paths:
-                root = str(Path(raw_root).resolve())
-                if not os.path.isdir(root):
+                try:
+                    root = validate_scan_root(raw_root)
+                except ValueError:
                     continue
 
                 with db_session() as conn:

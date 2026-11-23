@@ -34,7 +34,7 @@ from .gemini_ai import (
 )
 from .safety import execute_safe_removal, restore_quarantined_files
 from .media_utils import open_image_preview
-from .scanner import run_scan
+from .scanner import run_scan, validate_scan_root
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +285,10 @@ def reset_index() -> dict:
 def start_scan(req: ScanRequest) -> dict:
     if scanner_mod.scan_progress.running:
         raise HTTPException(status_code=409, detail="A scan is already running.")
-    valid_paths = [p for p in req.paths if os.path.isdir(p)]
+    try:
+        valid_paths = [validate_scan_root(p) for p in req.paths]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not valid_paths:
         raise HTTPException(status_code=400, detail="No valid directory paths provided.")
     if req.reset_before_scan:
