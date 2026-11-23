@@ -88,6 +88,7 @@ export default function App() {
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState('');
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState<'quarantine' | 'trash' | null>(null);
   const [bannerTask, setBannerTask] = useState<TaskProgress | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [refFolderOpen, setRefFolderOpen] = useState(false);
@@ -295,7 +296,8 @@ export default function App() {
 
   const handleExecuteCleanup = async (mode: 'quarantine' | 'trash') => {
     const count = stats?.marked_for_removal.cnt || 0;
-    if (count === 0) return;
+    if (count === 0 || cleanupLoading !== null) return;
+    setCleanupLoading(mode);
     try {
       const res = await api.executeSafety({
         use_marked_remove: true,
@@ -312,6 +314,8 @@ export default function App() {
       await Promise.all([refreshSidebar(), refreshMainList()]);
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Cleanup action failed', 'error');
+    } finally {
+      setCleanupLoading(null);
     }
   };
 
@@ -850,33 +854,44 @@ export default function App() {
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
+                  disabled={cleanupLoading !== null}
+                  aria-busy={cleanupLoading === 'quarantine'}
                   onClick={() => handleExecuteCleanup('quarantine')}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 font-semibold text-white hover:bg-emerald-500 transition"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                 >
-                  <ShieldCheck className="h-3.5 w-3.5" /> Move to Safe Quarantine
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />{' '}
+                  {cleanupLoading === 'quarantine' ? 'Moving to Quarantine...' : 'Move to Safe Quarantine'}
                 </button>
                 {confirmTrash ? (
                   <div className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/60 bg-rose-950/60 px-2.5 py-1">
-                    <span className="text-rose-200">Move {markedCount} to Recycle Bin?</span>
+                    <span className="text-rose-200">Move {markedCount.toLocaleString()} to Recycle Bin?</span>
                     <button
+                      type="button"
+                      disabled={cleanupLoading !== null}
+                      aria-busy={cleanupLoading === 'trash'}
                       onClick={() => handleExecuteCleanup('trash')}
-                      className="rounded-lg bg-rose-600 px-2.5 py-1 font-semibold text-white hover:bg-rose-500 transition"
+                      className="rounded-lg bg-rose-600 px-2.5 py-1 font-semibold text-white hover:bg-rose-500 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                     >
-                      Confirm
+                      {cleanupLoading === 'trash' ? 'Moving...' : 'Confirm'}
                     </button>
                     <button
+                      type="button"
+                      disabled={cleanupLoading !== null}
                       onClick={() => setConfirmTrash(false)}
-                      className="rounded-lg bg-zinc-800 px-2.5 py-1 font-medium text-zinc-200 hover:bg-zinc-700 transition"
+                      className="rounded-lg bg-zinc-800 px-2.5 py-1 font-medium text-zinc-200 hover:bg-zinc-700 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
                       Cancel
                     </button>
                   </div>
                 ) : (
                   <button
+                    type="button"
+                    disabled={cleanupLoading !== null}
                     onClick={() => setConfirmTrash(true)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-600/20 px-3.5 py-1.5 font-semibold text-rose-200 hover:bg-rose-600/30 transition"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-600/20 px-3.5 py-1.5 font-semibold text-rose-200 hover:bg-rose-600/30 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                   >
-                    <Trash2 className="h-3.5 w-3.5" /> Send to Recycle Bin
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Send to Recycle Bin
                   </button>
                 )}
               </div>
