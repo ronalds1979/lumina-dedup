@@ -626,19 +626,25 @@ def get_thumbnail(file_id: int):
         raise HTTPException(status_code=404, detail="Media missing on disk")
 
     thumb_path = THUMB_DIR / f"{file_id}.jpg"
+    thumb_headers = {
+        "X-Content-Type-Options": "nosniff",
+        # ⚡ Bolt: Allow browser caching of per-file_id thumbnails across pagination & tab switches
+        "Cache-Control": "private, max-age=86400",
+    }
     if thumb_path.exists():
-        return FileResponse(str(thumb_path), media_type="image/jpeg", headers={"X-Content-Type-Options": "nosniff"})
+        return FileResponse(str(thumb_path), media_type="image/jpeg", headers=thumb_headers)
 
     if row["media_type"] == "photo":
         try:
-            with open_image_preview(actual_path, ext=row["ext"]) as img:
-                rgb = img.convert("RGB")
+            # ⚡ Bolt: Request libjpeg DCT RGB draft downscaling (360x360) and skip redundant RGB conversion copy
+            with open_image_preview(actual_path, ext=row["ext"], rgb_draft=(360, 360)) as img:
+                rgb = img if img.mode == "RGB" else img.convert("RGB")
                 rgb.thumbnail((360, 360), Image.Resampling.LANCZOS)
                 buf = io.BytesIO()
                 rgb.save(buf, format="JPEG", quality=80)
                 data = buf.getvalue()
                 thumb_path.write_bytes(data)
-                return Response(content=data, media_type="image/jpeg", headers={"X-Content-Type-Options": "nosniff"})
+                return Response(content=data, media_type="image/jpeg", headers=thumb_headers)
         except Exception:
             pass
 
