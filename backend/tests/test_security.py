@@ -78,5 +78,25 @@ class TestScanRootValidation(unittest.TestCase):
                     validate_scan_root(tmpdir)
 
 
+class TestHostHeaderSecurity(unittest.TestCase):
+    def test_blocks_dns_rebinding_hosts_and_allows_local_hosts(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        with TestClient(app, base_url="http://127.0.0.1:8000") as client:
+            for valid_host in ("127.0.0.1:8000", "localhost:8000", "[::1]:8000", "localhost:5173"):
+                resp = client.get("/api/health", headers={"Host": valid_host})
+                self.assertEqual(resp.status_code, 200, f"Expected 200 for {valid_host}")
+
+            for evil_host in (
+                "rebind.attacker.example:8000",
+                "localhost.attacker.example:8000",
+                "evil@127.0.0.1:8000",
+                "",
+            ):
+                resp = client.get("/api/health", headers={"Host": evil_host})
+                self.assertEqual(resp.status_code, 403, f"Expected 403 for {evil_host}")
+
+
 if __name__ == "__main__":
     unittest.main()

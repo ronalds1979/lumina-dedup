@@ -3,6 +3,7 @@ import html
 import io
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Literal, Optional
@@ -44,6 +45,7 @@ ALLOWED_LOCAL_ORIGINS = {
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 }
+_LOCAL_HOST_RE = re.compile(r"^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$")
 
 app = FastAPI(title="LuminaDedup Studio API", version="1.0.0")
 
@@ -58,6 +60,11 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
+    # 🛡️ Sentinel: Reject non-local or duplicate Host headers on all routes to prevent DNS rebinding
+    host_headers = request.headers.getlist("host")
+    if len(host_headers) != 1 or not _LOCAL_HOST_RE.fullmatch(host_headers[0].strip().lower()):
+        return JSONResponse(status_code=403, content={"detail": "Host not allowed"})
+
     if request.url.path.startswith("/api/"):
         origin = request.headers.get("origin")
         if origin and origin not in ALLOWED_LOCAL_ORIGINS:

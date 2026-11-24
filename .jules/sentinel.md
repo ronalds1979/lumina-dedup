@@ -7,3 +7,8 @@
 **Vulnerability:** `POST /api/scan` (`backend/app/main.py`) and `run_scan` (`backend/app/scanner.py`) passed raw paths directly to `os.path.isdir()` and `Path.resolve()`, allowing Windows UNC paths (`\\host\share`), symlink/reparse roots, drive roots, OS directories, and `.lumina_data` / `.lumina_quarantine` to be scanned and indexed.
 **Learning:** On Windows, calling `os.path.isdir()` or `os.lstat()` on a UNC path initiates an outbound SMB connection (leaking Net-NTLMv2 credentials), and `IGNORED_DIRS` inside `_walk_media()` only filters child subdirectories rather than the scan root itself.
 **Prevention:** Validate scan roots before any `stat`/`resolve` call via `validate_scan_root()` to reject UNC/device prefixes, symlinks/reparse points, bare drive roots, and protected system or application directories.
+
+## 2026-11-24 - Missing Host Header Validation Enabling DNS Rebinding
+**Vulnerability:** `security_middleware` in `backend/app/main.py` validated `Origin` and `Sec-Fetch-Site` on `/api/*`, but did not validate the `Host` header, allowing an attacker origin that DNS-rebinds to `127.0.0.1:8000` to perform same-origin `GET` requests (omitting `Origin`, sending `Sec-Fetch-Site: same-origin`) and exfiltrate private media and library metadata.
+**Learning:** On an unauthenticated `127.0.0.1` server, `Origin` and `Sec-Fetch-Site` checks alone do not stop DNS rebinding because same-origin `GET` requests bypass both checks.
+**Prevention:** Enforce a strict local `Host` header allowlist (`localhost`, `127.0.0.1`, `[::1]`, rejecting missing or duplicate `Host` headers) across all routes at the outermost middleware layer.
