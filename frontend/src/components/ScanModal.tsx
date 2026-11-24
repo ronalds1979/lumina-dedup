@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Cpu, FolderPlus, Play, RotateCcw, X } from 'lucide-react';
 import { api } from '../api';
 import { TaskProgress } from '../types';
@@ -17,10 +17,11 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
     existingRoots.length > 0 ? existingRoots.map((r) => r.path).join('\n') : 'C:\\Users\\Public\\Pictures'
   );
   const [extractExif, setExtractExif] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [pendingMode, setPendingMode] = useState<'add' | 'reset' | null>(null);
   const [trackingScan, setTrackingScan] = useState(false);
   const [error, setError] = useState('');
   const dialogRef = useDialogA11y(open, onClose);
+  const pathsRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -39,15 +40,17 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
   const showProgressView = trackingScan || isRunning;
 
   const handleStart = async (resetBeforeScan = false) => {
+    if (pendingMode !== null) return;
     const paths = pathsText
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
     if (paths.length === 0) {
       setError('Enter at least one folder path.');
+      pathsRef.current?.focus();
       return;
     }
-    setLoading(true);
+    setPendingMode(resetBeforeScan ? 'reset' : 'add');
     setError('');
     try {
       await api.startScan(paths, extractExif, resetBeforeScan);
@@ -56,7 +59,7 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to start scan');
     } finally {
-      setLoading(false);
+      setPendingMode(null);
     }
   };
 
@@ -87,7 +90,7 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
         </div>
 
         {showProgressView ? (
-          <div className="p-6 space-y-5">
+          <div className="p-6 space-y-5" role="status" aria-live="polite">
             <div className="flex items-center gap-3">
               {isRunning ? (
                 <Cpu className="h-6 w-6 text-indigo-400 animate-spin shrink-0" />
@@ -153,15 +156,22 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
         ) : (
           <div className="p-6 space-y-4">
             <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+              <label htmlFor="scan-folder-paths" className="block text-sm font-medium text-zinc-300 mb-1.5">
                 Folder Paths (one per line)
               </label>
               <textarea
+                id="scan-folder-paths"
+                ref={pathsRef}
                 rows={4}
                 value={pathsText}
-                onChange={(e) => setPathsText(e.target.value)}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'scan-paths-error' : undefined}
+                onChange={(e) => {
+                  setPathsText(e.target.value);
+                  if (error) setError('');
+                }}
                 placeholder="D:\Photos&#10;E:\Backups\Camera Roll"
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
               />
               <p className="mt-1.5 text-xs text-zinc-400">
                 Built for 285,000+ photos & videos. Indexes folders, extensions, sizes, and metadata into a fast local SQLite catalog without modifying any files.
@@ -173,7 +183,7 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
                 type="checkbox"
                 checked={extractExif}
                 onChange={(e) => setExtractExif(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-zinc-600 accent-indigo-500"
+                className="mt-0.5 h-4 w-4 rounded border-zinc-600 accent-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               />
               <div>
                 <div className="text-sm font-medium text-zinc-200">Extract image dimensions & EXIF date/camera</div>
@@ -184,7 +194,7 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
             </label>
 
             {error && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
+              <div id="scan-paths-error" role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
                 {error}
               </div>
             )}
@@ -195,22 +205,25 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
           {showProgressView ? (
             isRunning ? (
               <button
+                type="button"
                 onClick={onClose}
-                className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
+                className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 Hide & Continue in Background
               </button>
             ) : (
               <>
                 <button
+                  type="button"
                   onClick={() => setTrackingScan(false)}
-                  className="rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   Scan Another Folder
                 </button>
                 <button
+                  type="button"
                   onClick={onClose}
-                  className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                  className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                 >
                   Done & View Library
                 </button>
@@ -219,27 +232,33 @@ export const ScanModal: React.FC<Props> = ({ open, onClose, onStarted, existingR
           ) : (
             <>
               <button
+                type="button"
                 onClick={onClose}
-                className="rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
+                disabled={pendingMode !== null}
+                className="rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => handleStart(true)}
-                disabled={loading}
+                disabled={pendingMode !== null}
+                aria-busy={pendingMode === 'reset'}
                 title="Clears previous indexed folders & duplicate groups, then indexes only the folders above (quarantined files are preserved)"
-                className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-200 hover:bg-amber-500/25 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-200 hover:bg-amber-500/25 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
               >
-                <RotateCcw className="h-4 w-4" />
-                Reset Index & Scan
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                {pendingMode === 'reset' ? 'Resetting...' : 'Reset Index & Scan'}
               </button>
               <button
+                type="button"
                 onClick={() => handleStart(false)}
-                disabled={loading}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+                disabled={pendingMode !== null}
+                aria-busy={pendingMode === 'add'}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
               >
-                <Play className="h-4 w-4" />
-                {loading ? 'Starting...' : 'Add / Scan'}
+                <Play className="h-4 w-4" aria-hidden="true" />
+                {pendingMode === 'add' ? 'Starting...' : 'Add / Scan'}
               </button>
             </>
           )}
