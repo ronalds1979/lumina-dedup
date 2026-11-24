@@ -2,10 +2,12 @@ import unittest
 from pydantic import ValidationError
 
 from app.main import (
+    AutoSelectRequest,
     CopilotRequest,
     DecisionRequest,
     DedupRunRequest,
     ExecuteRemovalRequest,
+    RestoreRequest,
     ScanRequest,
     SettingsRequest,
 )
@@ -34,6 +36,15 @@ class TestRequestModelSecurityBounds(unittest.TestCase):
         self.assertEqual(ExecuteRemovalRequest(mode="trash").mode, "trash")
         with self.assertRaises(ValidationError):
             ExecuteRemovalRequest(mode="delete_all")
+        with self.assertRaises(ValidationError):
+            ExecuteRemovalRequest(file_ids=list(range(1, 10002)))
+        with self.assertRaises(ValidationError):
+            RestoreRequest(file_ids=list(range(1, 10002)))
+        with self.assertRaises(ValidationError):
+            AutoSelectRequest(rule="unknown_destructive_rule")
+        with self.assertRaises(ValidationError):
+            AutoSelectRequest(rule="keep_largest", approach="invalid")
+        self.assertEqual(AutoSelectRequest(rule="keep_cleanest_path").rule, "keep_cleanest_path")
 
     def test_copilot_and_settings_and_scan_bounds(self):
         with self.assertRaises(ValidationError):

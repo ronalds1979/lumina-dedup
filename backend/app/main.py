@@ -116,22 +116,33 @@ class DecisionRequest(BaseModel):
     decision: Literal["keep", "remove", "undecided"]
 
 
+DedupApproach = Literal["exact", "visual", "burst", "semantic"]
+AutoSelectRule = Literal[
+    "keep_largest",
+    "keep_highest_res",
+    "keep_oldest",
+    "keep_newest",
+    "keep_cleanest_path",
+    "keep_in_folder",
+]
+
+
 class AutoSelectRequest(BaseModel):
-    rule: str  # keep_largest | keep_highest_res | keep_oldest | keep_newest | keep_cleanest_path | keep_in_folder
-    approach: Optional[str] = None
-    group_id: Optional[int] = None
+    rule: AutoSelectRule
+    approach: Optional[DedupApproach] = None
+    group_id: Optional[int] = Field(None, ge=1)
     reference_folder: Optional[str] = Field(None, max_length=500)
 
 
 class ExecuteRemovalRequest(BaseModel):
-    file_ids: Optional[list[int]] = None
+    file_ids: Optional[list[int]] = Field(None, max_length=10000)
     use_marked_remove: bool = False
-    approach: Optional[str] = None
+    approach: Optional[DedupApproach] = None
     mode: Literal["quarantine", "trash"] = "quarantine"
 
 
 class RestoreRequest(BaseModel):
-    file_ids: Optional[list[int]] = None
+    file_ids: Optional[list[int]] = Field(None, max_length=10000)
     batch_id: Optional[str] = Field(None, max_length=128)
 
 
@@ -759,7 +770,7 @@ def ai_analyze_group(group_id: int, req: AIAnalyzeRequest) -> dict:
 
 @app.post("/api/ai/batch-analyze")
 def ai_batch_analyze(
-    approach: str = Query("visual"),
+    approach: DedupApproach = Query("visual"),
     limit: int = Query(5, ge=1, le=20),
     model: str = Query("gemini-3.8-flash"),
     auto_apply: bool = Query(True),

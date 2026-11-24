@@ -575,8 +575,11 @@ def apply_auto_select_rule(
                 keeper = min(members, key=lambda r: (r["mtime"], len(r["path"])))
             elif rule == "keep_newest":
                 keeper = max(members, key=lambda r: (r["mtime"], r["size"]))
-            else:  # keep_cleanest_path
+            elif rule == "keep_cleanest_path":
                 keeper = min(members, key=path_score)
+            else:
+                # 🛡️ Sentinel: Reject unrecognized rules instead of silently marking files for removal
+                raise ValueError(f"Unsupported auto-select rule: {rule}")
 
             keeper_id = keeper["id"]
             for m in members:

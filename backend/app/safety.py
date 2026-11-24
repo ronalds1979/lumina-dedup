@@ -49,11 +49,17 @@ def execute_safe_removal(
     errors: list[dict] = []
 
     with db_session() as conn:
-        placeholders = ",".join("?" for _ in file_ids)
-        rows = conn.execute(
-            f"SELECT id, path, size, status FROM media_files WHERE id IN ({placeholders}) AND status = 'active'",
-            file_ids,
-        ).fetchall()
+        # 🛡️ Sentinel: Chunk SQLite IN (...) lookups to stay well below SQLITE_MAX_VARIABLE_NUMBER (32766)
+        rows = []
+        for idx in range(0, len(file_ids), 500):
+            chunk = file_ids[idx : idx + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            rows.extend(
+                conn.execute(
+                    f"SELECT id, path, size, status FROM media_files WHERE id IN ({placeholders}) AND status = 'active'",
+                    chunk,
+                ).fetchall()
+            )
 
         for r in rows:
             fid = r["id"]
@@ -127,11 +133,16 @@ def restore_quarantined_files(file_ids: Optional[list[int]] = None, batch_id: Op
                 (batch_id,),
             ).fetchall()
         elif file_ids:
-            placeholders = ",".join("?" for _ in file_ids)
-            rows = conn.execute(
-                f"SELECT id, path, quarantine_path, size FROM media_files WHERE id IN ({placeholders}) AND status = 'quarantined'",
-                file_ids,
-            ).fetchall()
+            rows = []
+            for idx in range(0, len(file_ids), 500):
+                chunk = file_ids[idx : idx + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                rows.extend(
+                    conn.execute(
+                        f"SELECT id, path, quarantine_path, size FROM media_files WHERE id IN ({placeholders}) AND status = 'quarantined'",
+                        chunk,
+                    ).fetchall()
+                )
         else:
             return {"restored": 0, "restored_bytes": 0, "errors": []}
 
@@ -146,6 +157,9 @@ def restore_quarantined_files(file_ids: Optional[list[int]] = None, batch_id: Op
                 continue
             if os.path.islink(qpath) or os.path.islink(orig):
                 errors.append({"file_id": fid, "path": orig, "error": "Refusing to restore symlink"})
+                continue
+            if os.path.lexists(orig):
+                errors.append({"file_id": fid, "path": orig, "error": "Refusing to overwrite existing destination file"})
                 continue
             if not Path(qpath).resolve().is_relative_to(quarantine_base):
                 errors.append({"file_id": fid, "path": orig, "error": "Quarantine path outside quarantine root"})
