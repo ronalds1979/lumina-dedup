@@ -26,12 +26,36 @@ EXIF_DATE_TAG = 36867  # DateTimeOriginal
 EXIF_MODEL_TAG = 272   # Model
 
 
+def _protected_dirs() -> list[Path]:
+    dirs = [BASE_DIR.resolve(), DATA_DIR.resolve(), DEFAULT_QUARANTINE_DIR.resolve()]
+    dirs.extend(
+        Path(os.environ[k]).resolve()
+        for k in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData")
+        if os.environ.get(k)
+    )
+    return dirs
+
+
+def _is_system_root(resolved: Path) -> bool:
+    if len(resolved.parts) > 1:
+        return False
+    if not resolved.drive:
+        return True
+    sys_drive = (
+        os.environ.get("SystemDrive")
+        or Path(os.environ.get("SystemRoot", "C:\\Windows")).drive
+    ).rstrip("\\/").upper()
+    return bool(sys_drive) and resolved.drive.rstrip("\\/").upper() == sys_drive
+
+
 def validate_scan_root(raw_path: str) -> str:
     """Validate a user-supplied scan root against UNC leaks, reparse traversal, and protected dirs."""
     # 🛡️ Sentinel: Block UNC/device paths before os.path/stat calls to prevent SMB Net-NTLM leaks
     p = (raw_path or "").strip()
     if not p or p.startswith(("\\\\", "//")):
         raise ValueError(f"Network or device paths are not allowed: {raw_path}")
+    if os.name == "nt" and len(p) == 2 and p[0].isalpha() and p[1] == ":":
+        p = p + "\\"
     if os.path.islink(p):
         raise ValueError(f"Symlink scan roots are not allowed: {raw_path}")
     try:
@@ -42,10 +66,11 @@ def validate_scan_root(raw_path: str) -> str:
     if stat.S_ISLNK(lst.st_mode) or (reparse_attr and (getattr(lst, "st_file_attributes", 0) & reparse_attr)):
         raise ValueError(f"Reparse-point scan roots are not allowed: {raw_path}")
     resolved = Path(p).resolve()
-    if not resolved.is_dir() or len(resolved.parts) <= 1:
-        raise ValueError(f"Drive roots or non-directory paths are not allowed: {raw_path}")
-    protected = [BASE_DIR.resolve(), DATA_DIR.resolve(), DEFAULT_QUARANTINE_DIR.resolve()]
-    protected.extend(Path(os.environ[k]).resolve() for k in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData") if os.environ.get(k))
+    if not resolved.is_dir():
+        raise ValueError(f"Non-directory paths are not allowed: {raw_path}")
+    if _is_system_root(resolved):
+        raise ValueError(f"System drive root cannot be scanned directly; choose a subfolder: {raw_path}")
+    protected = _protected_dirs()
     if any(resolved == b or resolved.is_relative_to(b) for b in protected):
         raise ValueError(f"Protected system or application directory cannot be scanned: {raw_path}")
     return str(resolved)
@@ -120,6 +145,7 @@ def _is_reparse_dir(path: str) -> bool:
 
 
 def _walk_media(root_path: str):
+    protected_norm = {os.path.normcase(str(d)) for d in _protected_dirs()}
     stack = [root_path]
     while stack:
         current = stack.pop()
@@ -128,8 +154,13 @@ def _walk_media(root_path: str):
                 for entry in it:
                     name_lower = entry.name.lower()
                     if entry.is_dir(follow_symlinks=False):
-                        # 🛡️ Sentinel: Skip nested NTFS junctions/reparse points to prevent root escape and cyclic loops
-                        if name_lower not in IGNORED_DIRS and not name_lower.startswith(".") and not _is_reparse_dir(entry.path):
+                        # 🛡️ Sentinel: Skip nested NTFS junctions/reparse points and protected dirs to prevent root escape and cyclic loops
+                        if (
+                            name_lower not in IGNORED_DIRS
+                            and not name_lower.startswith(".")
+                            and os.path.normcase(os.path.abspath(entry.path)) not in protected_norm
+                            and not _is_reparse_dir(entry.path)
+                        ):
                             stack.append(entry.path)
                     elif entry.is_file(follow_symlinks=False):
                         ext = os.path.splitext(name_lower)[1]

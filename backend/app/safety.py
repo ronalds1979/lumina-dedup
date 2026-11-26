@@ -13,8 +13,8 @@ from .database import db_session
 def _safe_relative_dest(original_path: str, batch_dir: Path) -> Path:
     p = Path(original_path)
     drive = p.drive.replace(":", "") if p.drive else "root"
-    parts = [part for part in p.parts if part not in (p.drive, "\\", "/")]
-    if any(part == ".." for part in parts):
+    parts = [part for part in p.parts if part not in (p.anchor, p.drive, "\\", "/")]
+    if not parts or any(part == ".." for part in parts):
         raise ValueError(f"Unsafe path traversal segment in original_path: {original_path}")
     dest = batch_dir / drive / Path(*parts)
     if not dest.resolve().is_relative_to(batch_dir.resolve()):

@@ -78,15 +78,46 @@ class TestScanRootValidation(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             self.assertEqual(validate_scan_root(tmpdir), str(Path(tmpdir).resolve()))
-            drive_root = str(Path(tmpdir).anchor)
-            if drive_root:
+            sys_root = Path(os.environ.get("SystemRoot", "/")).resolve().anchor
+            if sys_root:
                 with self.assertRaises(ValueError):
-                    validate_scan_root(drive_root)
+                    validate_scan_root(sys_root)
 
             reparse_stat = type("S", (), {"st_mode": 0o040755, "st_file_attributes": 0x400})()
             with patch("app.scanner.os.lstat", return_value=reparse_stat):
                 with self.assertRaises(ValueError):
                     validate_scan_root(tmpdir)
+
+    def test_validate_scan_root_allows_secondary_media_drive_roots(self):
+        import os
+        from pathlib import Path
+        from unittest.mock import patch
+
+        if os.name == "nt":
+            normal_dir_stat = type("S", (), {"st_mode": 0o040755, "st_file_attributes": 0x10})()
+            with (
+                patch.dict(os.environ, {"SystemDrive": "C:", "SystemRoot": r"C:\Windows"}, clear=False),
+                patch("app.scanner.os.path.islink", return_value=False),
+                patch("app.scanner.os.lstat", return_value=normal_dir_stat),
+                patch.object(Path, "resolve", autospec=True, side_effect=lambda self, *a, **kw: Path("D:\\") if str(self).upper().startswith("D:") else Path(os.fspath(self))),
+                patch.object(Path, "is_dir", return_value=True),
+            ):
+                self.assertEqual(validate_scan_root("D:\\"), "D:\\")
+                self.assertEqual(validate_scan_root("D:"), "D:\\")
+                with self.assertRaises(ValueError):
+                    validate_scan_root("C:\\")
+
+    def test_safe_relative_dest_handles_windows_drive_roots_and_subfolders(self):
+        import tempfile
+        from pathlib import Path
+        from app.safety import _safe_relative_dest
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            batch_dir = Path(tmpdir) / "batch_1"
+            dest_root_file = _safe_relative_dest(r"D:\IMG_0001.JPG", batch_dir)
+            self.assertTrue(dest_root_file.resolve().is_relative_to(batch_dir.resolve()))
+            dest_sub_file = _safe_relative_dest(r"D:\Photos\2026\IMG_0002.JPG", batch_dir)
+            self.assertTrue(dest_sub_file.resolve().is_relative_to(batch_dir.resolve()))
 
 
 class TestHostHeaderSecurity(unittest.TestCase):
