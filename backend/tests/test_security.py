@@ -109,5 +109,34 @@ class TestHostHeaderSecurity(unittest.TestCase):
                 self.assertEqual(resp.status_code, 403, f"Expected 403 for {evil_host}")
 
 
+class TestNestedJunctionAndSemanticLimitSecurity(unittest.TestCase):
+    def test_walk_media_skips_nested_reparse_directories(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+        from app.scanner import _walk_media
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            safe_sub = os.path.join(tmpdir, "safe")
+            junction_sub = os.path.join(tmpdir, "junction_escape")
+            os.makedirs(safe_sub)
+            os.makedirs(junction_sub)
+            with open(os.path.join(safe_sub, "keep.jpg"), "wb") as f:
+                f.write(b"ok")
+            with open(os.path.join(junction_sub, "secret.jpg"), "wb") as f:
+                f.write(b"secret")
+
+            with patch("app.scanner._is_reparse_dir", side_effect=lambda p: os.path.abspath(p) == os.path.abspath(junction_sub)):
+                found = [entry.name for entry, _ in _walk_media(tmpdir)]
+            self.assertEqual(found, ["keep.jpg"])
+
+    def test_semantic_dedup_clustering_query_enforces_limit(self):
+        import inspect
+        from app import gemini_ai
+
+        src = inspect.getsource(gemini_ai.run_semantic_dedup)
+        self.assertGreaterEqual(src.count("LIMIT ?"), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

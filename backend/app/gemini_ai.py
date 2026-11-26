@@ -13,6 +13,7 @@ from google.genai import types
 
 from .config import get_gemini_api_key
 from .database import db_session
+from .media_utils import MAX_PREVIEW_BYTES
 from .scanner import TaskProgress
 
 semantic_progress = TaskProgress()
@@ -47,6 +48,9 @@ def _get_client() -> genai.Client:
 
 def _encode_image_b64(path: str, max_dim: int = 768) -> Optional[str]:
     try:
+        # 🛡️ Sentinel: Reject symlinks and oversized images before decoding for Gemini analysis
+        if os.path.islink(path) or os.path.getsize(path) > MAX_PREVIEW_BYTES:
+            return None
         with Image.open(path) as img:
             rgb = img.convert("RGB")
             rgb.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
@@ -59,6 +63,8 @@ def _encode_image_b64(path: str, max_dim: int = 768) -> Optional[str]:
 
 def _encode_image_bytes(path: str, max_dim: int = 512) -> Optional[bytes]:
     try:
+        if os.path.islink(path) or os.path.getsize(path) > MAX_PREVIEW_BYTES:
+            return None
         with Image.open(path) as img:
             rgb = img.convert("RGB")
             rgb.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
@@ -273,11 +279,14 @@ def run_semantic_dedup(
             if folder_filter:
                 where += " AND folder LIKE ? ESCAPE '\\'"
                 params.append(f"{escape_like(folder_filter)}%")
-            embedded = conn.execute(
-                f"SELECT id, folder, ext, size, embedding FROM media_files WHERE {where}",
-                params,
+            # 🛡️ Sentinel: Bound clustering query by `limit` so accumulated embeddings cannot trigger O(N^2) RAM exhaustion
+            embedded_rows = conn.execute(
+                f"SELECT id, folder, ext, size, embedding FROM media_files WHERE {where} ORDER BY size DESC LIMIT ?",
+                (*params, limit),
             ).fetchall()
 
+        expected_vec_bytes = 768 * 4
+        embedded = [r for r in embedded_rows if isinstance(r["embedding"], (bytes, memoryview)) and len(r["embedding"]) == expected_vec_bytes]
         if len(embedded) >= 2:
             vecs = np.vstack([np.frombuffer(r["embedding"], dtype=np.float32) for r in embedded])
             sim_matrix = vecs @ vecs.T

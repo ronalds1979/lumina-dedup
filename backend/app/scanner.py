@@ -105,6 +105,20 @@ def _extract_image_meta(path: str) -> tuple[Optional[int], Optional[int], Option
         return None, None, None, None
 
 
+def _is_reparse_dir(path: str) -> bool:
+    """Detect Windows NTFS junctions and reparse points that DirEntry.is_dir(follow_symlinks=False) treats as dirs."""
+    is_junction = getattr(os.path, "isjunction", None)
+    if os.path.islink(path) or (callable(is_junction) and is_junction(path)):
+        return True
+    reparse_attr = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if reparse_attr:
+        try:
+            return bool(getattr(os.lstat(path), "st_file_attributes", 0) & reparse_attr)
+        except OSError:
+            return True
+    return False
+
+
 def _walk_media(root_path: str):
     stack = [root_path]
     while stack:
@@ -114,7 +128,8 @@ def _walk_media(root_path: str):
                 for entry in it:
                     name_lower = entry.name.lower()
                     if entry.is_dir(follow_symlinks=False):
-                        if name_lower not in IGNORED_DIRS and not name_lower.startswith("."):
+                        # 🛡️ Sentinel: Skip nested NTFS junctions/reparse points to prevent root escape and cyclic loops
+                        if name_lower not in IGNORED_DIRS and not name_lower.startswith(".") and not _is_reparse_dir(entry.path):
                             stack.append(entry.path)
                     elif entry.is_file(follow_symlinks=False):
                         ext = os.path.splitext(name_lower)[1]

@@ -12,3 +12,8 @@
 **Vulnerability:** `security_middleware` in `backend/app/main.py` validated `Origin` and `Sec-Fetch-Site` on `/api/*`, but did not validate the `Host` header, allowing an attacker origin that DNS-rebinds to `127.0.0.1:8000` to perform same-origin `GET` requests (omitting `Origin`, sending `Sec-Fetch-Site: same-origin`) and exfiltrate private media and library metadata.
 **Learning:** On an unauthenticated `127.0.0.1` server, `Origin` and `Sec-Fetch-Site` checks alone do not stop DNS rebinding because same-origin `GET` requests bypass both checks.
 **Prevention:** Enforce a strict local `Host` header allowlist (`localhost`, `127.0.0.1`, `[::1]`, rejecting missing or duplicate `Host` headers) across all routes at the outermost middleware layer.
+
+## 2026-11-26 - Unbounded Clustering Query in Semantic Dedup & Nested NTFS Junction Traversal
+**Vulnerability:** `run_semantic_dedup` bounded its initial embedding candidate query with `LIMIT ?`, but its second clustering `SELECT ... WHERE embedding IS NOT NULL` omitted `LIMIT ?`, loading all historically embedded rows into an `O(N^2)` matrix; additionally, `_walk_media` used `DirEntry.is_dir(follow_symlinks=False)` which returns `True` for NTFS directory junctions on Windows.
+**Learning:** Bounding only the incremental work queue leaves downstream aggregation queries vulnerable once state accumulates in SQLite, and Python's `follow_symlinks=False` on `DirEntry.is_dir` does not block NTFS junctions unless `os.path.isjunction` / `FILE_ATTRIBUTE_REPARSE_POINT` is checked.
+**Prevention:** Apply explicit `LIMIT ?` and vector byte-length checks directly to similarity-clustering queries, and check `_is_reparse_dir()` on every traversed subdirectory.
