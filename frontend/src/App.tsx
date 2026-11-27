@@ -11,6 +11,7 @@ import {
   FolderPlus,
   HardDrive,
   Layers,
+  Loader2,
   Play,
   Search,
   Settings,
@@ -817,10 +818,18 @@ export default function App() {
                 <Folder className="h-4 w-4 text-indigo-400 shrink-0" />
                 <span className="font-medium text-indigo-200 whitespace-nowrap">Authoritative Reference Folder:</span>
                 <input
+                  autoFocus
+                  aria-label="Authoritative reference folder path"
                   value={refFolderInput}
                   onChange={(e) => setRefFolderInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setRefFolderOpen(false);
+                    }
+                  }}
                   placeholder="e.g. D:\Original (copies outside this folder will be marked Remove)"
-                  className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none"
+                  className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-100 placeholder:text-zinc-500 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -983,8 +992,19 @@ export default function App() {
             ref={mainPanelRef}
             role="tabpanel"
             aria-labelledby={`tab-${tab}`}
+            aria-busy={listLoading}
             className="flex-1 overflow-y-auto p-5 space-y-4"
           >
+            {listLoading && (groups.length > 0 || files.length > 0) && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-950/35 px-3 py-1.5 text-xs text-indigo-200"
+              >
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400" aria-hidden="true" />
+                <span>Updating results...</span>
+              </div>
+            )}
             {listError ? (
               <div
                 role="alert"
@@ -1005,36 +1025,41 @@ export default function App() {
                 ))}
               </div>
             ) : tab === 'files' ? (
-              <FileExplorerTable
-                files={files}
-                total={fileTotal}
-                page={filePage}
-                pageSize={50}
-                sortBy={fileSortBy}
-                order={fileOrder}
-                hasFilters={Boolean(search || selectedFolder || selectedExt || mediaType)}
-                onClearFilters={() => {
-                  setSearch('');
-                  setDebouncedSearch('');
-                  setSelectedFolder('');
-                  setSelectedExt('');
-                  setMediaType('');
-                  setFilePage(1);
-                }}
-                onScanOpen={() => setScanOpen(true)}
-                onSortChange={(col) => {
-                  if (fileSortBy === col) setFileOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
-                  else {
-                    setFileSortBy(col);
-                    setFileOrder('desc');
-                  }
-                }}
-                onPageChange={setFilePage}
-                onPreview={(f) => {
-                  setCompareGroupId(undefined);
-                  setCompareFiles([f]);
-                }}
-              />
+              <div className={listLoading ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+                <FileExplorerTable
+                  files={files}
+                  total={fileTotal}
+                  page={filePage}
+                  pageSize={50}
+                  sortBy={fileSortBy}
+                  order={fileOrder}
+                  hasFilters={Boolean(search || selectedFolder || selectedExt || mediaType)}
+                  onClearFilters={() => {
+                    setSearch('');
+                    setDebouncedSearch('');
+                    setSelectedFolder('');
+                    setSelectedExt('');
+                    setMediaType('');
+                    setFilePage(1);
+                  }}
+                  onScanOpen={() => setScanOpen(true)}
+                  onSortChange={(col) => {
+                    if (fileSortBy === col) setFileOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+                    else {
+                      setFileSortBy(col);
+                      setFileOrder('desc');
+                    }
+                  }}
+                  onPageChange={(nextPage) => {
+                    setFilePage(nextPage);
+                    mainPanelRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPreview={(f) => {
+                    setCompareGroupId(undefined);
+                    setCompareFiles([f]);
+                  }}
+                />
+              </div>
             ) : groups.length === 0 ? (
               (() => {
                 const hasFilters = Boolean(search || selectedFolder || selectedExt);
@@ -1090,7 +1115,7 @@ export default function App() {
               })()
             ) : (
               <>
-                <div className="space-y-4">
+                <div className={`space-y-4 transition-opacity ${listLoading ? 'opacity-60' : ''}`}>
                   {groups.map((g) => (
                     <DuplicateGroupCard
                       key={g.id}
