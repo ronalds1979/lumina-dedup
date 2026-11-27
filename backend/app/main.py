@@ -33,7 +33,7 @@ from .gemini_ai import (
     run_semantic_dedup,
     validate_gemini_model,
 )
-from .safety import execute_safe_removal, restore_quarantined_files
+from .safety import execute_safe_removal, is_unsafe_local_path, restore_quarantined_files
 from .media_utils import open_image_preview
 from .scanner import run_scan, validate_scan_root
 
@@ -640,7 +640,7 @@ def get_thumbnail(file_id: int):
         raise HTTPException(status_code=404, detail="File not found")
 
     actual_path = row["quarantine_path"] if row["status"] == "quarantined" and row["quarantine_path"] else row["path"]
-    if not actual_path or os.path.islink(actual_path) or not os.path.exists(actual_path):
+    if not actual_path or is_unsafe_local_path(actual_path) or not os.path.exists(actual_path):
         raise HTTPException(status_code=404, detail="Media missing on disk")
 
     thumb_path = THUMB_DIR / f"{file_id}.jpg"
@@ -686,7 +686,7 @@ def get_raw_media(file_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="File not found")
     actual_path = row["quarantine_path"] if row["status"] == "quarantined" and row["quarantine_path"] else row["path"]
-    if not actual_path or os.path.islink(actual_path) or not os.path.exists(actual_path):
+    if not actual_path or is_unsafe_local_path(actual_path) or not os.path.exists(actual_path):
         raise HTTPException(status_code=404, detail="Media missing on disk")
     return FileResponse(actual_path, headers={"X-Content-Type-Options": "nosniff"})
 

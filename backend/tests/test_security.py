@@ -168,6 +168,32 @@ class TestNestedJunctionAndSemanticLimitSecurity(unittest.TestCase):
         src = inspect.getsource(gemini_ai.run_semantic_dedup)
         self.assertGreaterEqual(src.count("LIMIT ?"), 2)
 
+    def test_is_unsafe_local_path_blocks_unc_and_reparse_lineage(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+        from app.safety import is_unsafe_local_path
+
+        for unc in (r"\\attacker.example\share\photo.jpg", "//attacker.example/share/photo.jpg", r"\\.\C:\photo.jpg"):
+            with patch("app.safety.os.lstat", side_effect=AssertionError("lstat must not run on UNC/device paths")):
+                self.assertTrue(is_unsafe_local_path(unc))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nested = os.path.join(tmpdir, "sub", "photo.jpg")
+            os.makedirs(os.path.dirname(nested))
+            with open(nested, "wb") as f:
+                f.write(b"ok")
+            self.assertFalse(is_unsafe_local_path(nested))
+
+            reparse_stat = type("S", (), {"st_file_attributes": 0x400})()
+            normal_stat = type("S", (), {"st_file_attributes": 0x10})()
+            sub_abs = os.path.abspath(os.path.dirname(nested))
+            with patch("app.safety.stat.FILE_ATTRIBUTE_REPARSE_POINT", 0x400, create=True), patch(
+                "app.safety.os.lstat",
+                side_effect=lambda p: reparse_stat if os.path.abspath(p) == sub_abs else normal_stat,
+            ):
+                self.assertTrue(is_unsafe_local_path(nested))
+
 
 if __name__ == "__main__":
     unittest.main()

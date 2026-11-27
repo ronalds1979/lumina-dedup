@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 import time
 import uuid
 from pathlib import Path
@@ -8,6 +9,35 @@ from send2trash import send2trash
 
 from .config import DEFAULT_QUARANTINE_DIR
 from .database import db_session
+
+
+def is_unsafe_local_path(path: str) -> bool:
+    """Reject UNC/device paths and symlinks/NTFS junctions/reparse points across the path lineage."""
+    # 🛡️ Sentinel: Block UNC/device prefixes before lstat/exists and detect NTFS junctions across parent dirs
+    if not path or not isinstance(path, str) or "\x00" in path:
+        return True
+    normalized = path.replace("/", "\\")
+    if normalized.startswith(("\\\\", "\\??\\")):
+        return True
+    is_junction = getattr(os.path, "isjunction", None)
+    reparse_attr = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    curr = os.path.abspath(path)
+    visited: set[str] = set()
+    while curr and curr not in visited:
+        visited.add(curr)
+        if os.path.islink(curr) or (callable(is_junction) and is_junction(curr)):
+            return True
+        if reparse_attr:
+            try:
+                if getattr(os.lstat(curr), "st_file_attributes", 0) & reparse_attr:
+                    return True
+            except OSError:
+                pass
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
+    return False
 
 
 def _safe_relative_dest(original_path: str, batch_dir: Path) -> Path:
@@ -65,8 +95,8 @@ def execute_safe_removal(
             fid = r["id"]
             orig = r["path"]
             sz = r["size"]
-            if os.path.islink(orig):
-                errors.append({"file_id": fid, "path": orig, "error": "Refusing to remove symlink"})
+            if is_unsafe_local_path(orig):
+                errors.append({"file_id": fid, "path": orig, "error": "Refusing to remove unsafe or reparse-point path"})
                 continue
             if not os.path.exists(orig):
                 errors.append({"file_id": fid, "path": orig, "error": "File not found on disk"})
@@ -155,8 +185,8 @@ def restore_quarantined_files(file_ids: Optional[list[int]] = None, batch_id: Op
             if not qpath or not os.path.exists(qpath):
                 errors.append({"file_id": fid, "path": orig, "error": "Quarantined file missing"})
                 continue
-            if os.path.islink(qpath) or os.path.islink(orig):
-                errors.append({"file_id": fid, "path": orig, "error": "Refusing to restore symlink"})
+            if is_unsafe_local_path(qpath) or is_unsafe_local_path(orig):
+                errors.append({"file_id": fid, "path": orig, "error": "Refusing to restore unsafe or reparse-point path"})
                 continue
             if os.path.lexists(orig):
                 errors.append({"file_id": fid, "path": orig, "error": "Refusing to overwrite existing destination file"})
