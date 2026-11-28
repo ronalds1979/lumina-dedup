@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Expand, Folder, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { Check, Expand, Folder, Loader2, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import { DuplicateGroup, MediaFile } from '../types';
 import { api, formatBytes } from '../api';
 
@@ -82,23 +82,36 @@ export const DuplicateGroupCard: React.FC<Props> = React.memo(({ group, onUpdate
           <button
             onClick={() => handleQuickRule('keep_largest')}
             disabled={pendingAction !== null}
+            aria-busy={pendingAction === 'rule-keep_largest'}
             className="inline-flex items-center gap-1 rounded-lg border border-zinc-700/80 bg-zinc-800/70 px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             title="Keep largest file, mark others for removal"
           >
-            <Wand2 className="h-3.5 w-3.5 text-zinc-400" /> {pendingAction === 'rule-keep_largest' ? 'Applying...' : 'Keep Largest'}
+            {pendingAction === 'rule-keep_largest' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-300" aria-hidden="true" />
+            ) : (
+              <Wand2 className="h-3.5 w-3.5 text-zinc-400" aria-hidden="true" />
+            )}{' '}
+            {pendingAction === 'rule-keep_largest' ? 'Applying...' : 'Keep Largest'}
           </button>
           <button
             onClick={() => onCompare(group.members.slice(0, 3), group.id)}
-            className="inline-flex items-center gap-1 rounded-lg border border-zinc-700/80 bg-zinc-800/70 px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 transition"
+            title={group.members.length > 3 ? `Compare first 3 of ${group.members.length} files side-by-side` : 'Compare files side-by-side'}
+            className="inline-flex items-center gap-1 rounded-lg border border-zinc-700/80 bg-zinc-800/70 px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
-            <Expand className="h-3.5 w-3.5 text-zinc-400" /> Compare
+            <Expand className="h-3.5 w-3.5 text-zinc-400" aria-hidden="true" />{' '}
+            {group.members.length > 3 ? 'Compare (Top 3)' : 'Compare'}
           </button>
           <button
             onClick={handleAskGemini}
             disabled={aiLoading}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-amber-500/20 to-indigo-500/20 border border-amber-400/30 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:from-amber-500/30 hover:to-indigo-500/30 disabled:opacity-50 transition"
+            aria-busy={aiLoading}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-amber-500/20 to-indigo-500/20 border border-amber-400/30 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:from-amber-500/30 hover:to-indigo-500/30 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
           >
-            <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+            {aiLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-300" aria-hidden="true" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5 text-amber-300" aria-hidden="true" />
+            )}
             {aiLoading ? 'Gemini Judging...' : 'Gemini: Pick Best'}
           </button>
         </div>
