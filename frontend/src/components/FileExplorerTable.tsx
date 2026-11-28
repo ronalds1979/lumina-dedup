@@ -3,6 +3,9 @@ import { ArrowDown, ArrowUp, Expand } from 'lucide-react';
 import { FileSortBy, MediaFile } from '../types';
 import { formatBytes } from '../api';
 
+// ⚡ Bolt: Reuse a single Intl.DateTimeFormat instance instead of resolving locale options on every row render
+const shortDateFormatter = new Intl.DateTimeFormat();
+
 interface Props {
   files: MediaFile[];
   total: number;
@@ -18,7 +21,8 @@ interface Props {
   onPreview: (file: MediaFile) => void;
 }
 
-export const FileExplorerTable: React.FC<Props> = ({
+// ⚡ Bolt: Memoize FileExplorerTable so background polling and toolbar interactions skip re-rendering 50 media rows
+export const FileExplorerTable: React.FC<Props> = React.memo(({
   files,
   total,
   page,
@@ -134,7 +138,7 @@ export const FileExplorerTable: React.FC<Props> = ({
                   {f.width && f.height ? `${f.width}×${f.height}` : f.media_type}
                 </td>
                 <td className="px-4 py-2 text-xs text-zinc-400">
-                  {new Date(f.mtime * 1000).toLocaleDateString()}
+                  {shortDateFormatter.format(f.mtime * 1000)}
                 </td>
               </tr>
               ))
@@ -166,4 +170,6 @@ export const FileExplorerTable: React.FC<Props> = ({
       </div>
     </div>
   );
-};
+});
+
+FileExplorerTable.displayName = 'FileExplorerTable';

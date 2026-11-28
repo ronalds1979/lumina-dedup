@@ -41,6 +41,20 @@ import { CompareModal } from './components/CompareModal';
 import { DuplicateGroupCard } from './components/DuplicateGroupCard';
 import { FileExplorerTable } from './components/FileExplorerTable';
 
+// ⚡ Bolt: Bail out of 750ms polling state updates when task progress is unchanged so idle polls cause zero React re-renders
+function isSameTaskProgress(prev: TaskProgress | null, next: TaskProgress): boolean {
+  return (
+    prev !== null &&
+    prev.running === next.running &&
+    prev.phase === next.phase &&
+    prev.processed === next.processed &&
+    prev.total === next.total &&
+    prev.current_path === next.current_path &&
+    prev.message === next.message &&
+    prev.error === next.error
+  );
+}
+
 export default function App() {
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [folders, setFolders] = useState<FolderItem[]>([]);
@@ -210,9 +224,9 @@ export default function App() {
   const pollTasks = useCallback(async () => {
     try {
       const [sc, dd] = await Promise.all([api.getScanStatus(), api.getDedupStatus()]);
-      setScanStatus(sc);
-      setDedupStatus(dd.local);
-      setSemanticStatus(dd.semantic);
+      setScanStatus((prev) => (isSameTaskProgress(prev, sc) ? prev : sc));
+      setDedupStatus((prev) => (isSameTaskProgress(prev, dd.local) ? prev : dd.local));
+      setSemanticStatus((prev) => (isSameTaskProgress(prev, dd.semantic) ? prev : dd.semantic));
 
       const prev = wasRunningRef.current;
       const scanDone = prev.scan && !sc.running;
@@ -336,6 +350,50 @@ export default function App() {
       showToast(e instanceof Error ? e.message : 'Failed to update decision', 'error');
     }
   };
+
+  // ⚡ Bolt: Stabilize callbacks passed to memoized DuplicateGroupCard and FileExplorerTable
+  const handleGroupUpdated = useCallback(() => {
+    refreshSidebar();
+    refreshMainList();
+  }, [refreshSidebar, refreshMainList]);
+
+  const handleGroupCompare = useCallback((fl: MediaFile[], gId: number) => {
+    setCompareGroupId(gId);
+    setCompareFiles(fl);
+  }, []);
+
+  const handleClearAllFilters = useCallback(() => {
+    setSearch('');
+    setDebouncedSearch('');
+    setSelectedFolder('');
+    setSelectedExt('');
+    setMediaType('');
+    setGroupPage(1);
+    setFilePage(1);
+  }, []);
+
+  const handleOpenScanModal = useCallback(() => setScanOpen(true), []);
+
+  const handleFileSortChange = useCallback(
+    (col: FileSortBy) => {
+      if (fileSortBy === col) setFileOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+      else {
+        setFileSortBy(col);
+        setFileOrder('desc');
+      }
+    },
+    [fileSortBy]
+  );
+
+  const handleFilePageChange = useCallback((nextPage: number) => {
+    setFilePage(nextPage);
+    mainPanelRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleFilePreview = useCallback((f: MediaFile) => {
+    setCompareGroupId(undefined);
+    setCompareFiles([f]);
+  }, []);
 
   const approachTabs: Array<{ id: ApproachTab; label: string; desc: string }> = [
     { id: 'exact', label: 'Exact Duplicates', desc: 'SHA-256 byte-identical' },
@@ -1047,31 +1105,12 @@ export default function App() {
                   pageSize={50}
                   sortBy={fileSortBy}
                   order={fileOrder}
-                  hasFilters={Boolean(search || selectedFolder || selectedExt || mediaType)}
-                  onClearFilters={() => {
-                    setSearch('');
-                    setDebouncedSearch('');
-                    setSelectedFolder('');
-                    setSelectedExt('');
-                    setMediaType('');
-                    setFilePage(1);
-                  }}
-                  onScanOpen={() => setScanOpen(true)}
-                  onSortChange={(col) => {
-                    if (fileSortBy === col) setFileOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
-                    else {
-                      setFileSortBy(col);
-                      setFileOrder('desc');
-                    }
-                  }}
-                  onPageChange={(nextPage) => {
-                    setFilePage(nextPage);
-                    mainPanelRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  onPreview={(f) => {
-                    setCompareGroupId(undefined);
-                    setCompareFiles([f]);
-                  }}
+                  hasFilters={Boolean(debouncedSearch || selectedFolder || selectedExt || mediaType)}
+                  onClearFilters={handleClearAllFilters}
+                  onScanOpen={handleOpenScanModal}
+                  onSortChange={handleFileSortChange}
+                  onPageChange={handleFilePageChange}
+                  onPreview={handleFilePreview}
                 />
               </div>
             ) : groups.length === 0 ? (
@@ -1141,14 +1180,8 @@ export default function App() {
                     <DuplicateGroupCard
                       key={g.id}
                       group={g}
-                      onUpdated={() => {
-                        refreshSidebar();
-                        refreshMainList();
-                      }}
-                      onCompare={(fl, gId) => {
-                        setCompareGroupId(gId);
-                        setCompareFiles(fl);
-                      }}
+                      onUpdated={handleGroupUpdated}
+                      onCompare={handleGroupCompare}
                     />
                   ))}
                 </div>

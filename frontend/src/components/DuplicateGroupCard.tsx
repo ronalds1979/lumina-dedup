@@ -9,7 +9,8 @@ interface Props {
   onCompare: (files: MediaFile[], groupId: number) => void;
 }
 
-export const DuplicateGroupCard: React.FC<Props> = ({ group, onUpdated, onCompare }) => {
+// ⚡ Bolt: Memoize DuplicateGroupCard so background task polling and toolbar state updates skip re-rendering 50 groups (200+ media cards)
+export const DuplicateGroupCard: React.FC<Props> = React.memo(({ group, onUpdated, onCompare }) => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -215,4 +216,6 @@ export const DuplicateGroupCard: React.FC<Props> = ({ group, onUpdated, onCompar
       </div>
     </div>
   );
-};
+});
+
+DuplicateGroupCard.displayName = 'DuplicateGroupCard';
