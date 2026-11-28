@@ -86,6 +86,7 @@ export default function App() {
   const [compareGroupId, setCompareGroupId] = useState<number | undefined>(undefined);
   const [toast, setToast] = useState<{ message: string; tone: 'info' | 'success' | 'error' } | null>(null);
   const [batchAiLoading, setBatchAiLoading] = useState(false);
+  const [autoSelectLoading, setAutoSelectLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState('');
   const [confirmTrash, setConfirmTrash] = useState(false);
@@ -265,12 +266,13 @@ export default function App() {
   };
 
   const handleAutoSelect = async (rule: string, referenceFolder?: string) => {
-    if (tab === 'files') return;
+    if (tab === 'files' || autoSelectLoading) return;
     if (rule === 'keep_in_folder' && !referenceFolder) {
       setRefFolderInput(selectedFolder || '');
       setRefFolderOpen(true);
       return;
     }
+    setAutoSelectLoading(true);
     try {
       const res = await api.autoSelect(rule, tab, undefined, referenceFolder);
       setRefFolderOpen(false);
@@ -278,6 +280,8 @@ export default function App() {
       await Promise.all([refreshSidebar(), refreshMainList()]);
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Auto-select failed', 'error');
+    } finally {
+      setAutoSelectLoading(false);
     }
   };
 
@@ -343,6 +347,7 @@ export default function App() {
 
   const markedCount = stats?.marked_for_removal.cnt || 0;
   const markedBytes = stats?.marked_for_removal.bytes || 0;
+  const isDetectionRunning = tab === 'semantic' ? Boolean(semanticStatus?.running) : Boolean(dedupStatus?.running);
 
   return (
     <div className="flex h-screen flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
@@ -758,13 +763,22 @@ export default function App() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleRunDetection}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600/20 border border-indigo-500/40 px-3 py-1.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-600/30 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  disabled={isDetectionRunning}
+                  aria-busy={isDetectionRunning}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600/20 border border-indigo-500/40 px-3 py-1.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-600/30 disabled:opacity-50 disabled:cursor-not-allowed transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
-                  <Play className="h-3.5 w-3.5" /> Run {tab} Scan
+                  {isDetectionRunning ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
+                  {isDetectionRunning ? `Running ${tab} Scan...` : `Run ${tab} Scan`}
                 </button>
 
                 <select
                   aria-label="Apply auto-select rule"
+                  disabled={autoSelectLoading}
+                  aria-busy={autoSelectLoading}
                   defaultValue=""
                   onChange={(e) => {
                     if (e.target.value) {
@@ -772,10 +786,10 @@ export default function App() {
                       e.target.value = '';
                     }
                   }}
-                  className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <option value="" disabled>
-                    Auto-Select Rule...
+                    {autoSelectLoading ? 'Applying rule...' : 'Auto-Select Rule...'}
                   </option>
                   <option value="keep_largest">Keep Largest File</option>
                   <option value="keep_highest_res">Keep Highest Resolution</option>
@@ -1104,9 +1118,16 @@ export default function App() {
                       ) : (
                         <button
                           onClick={handleRunDetection}
-                          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500"
+                          disabled={isDetectionRunning}
+                          aria-busy={isDetectionRunning}
+                          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
                         >
-                          <Play className="h-4 w-4" /> Run {tab} Scan
+                          {isDetectionRunning ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <Play className="h-4 w-4" aria-hidden="true" />
+                          )}
+                          {isDetectionRunning ? `Running ${tab} Scan...` : `Run ${tab} Scan`}
                         </button>
                       )}
                     </div>
