@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import stat
@@ -9,6 +10,8 @@ from send2trash import send2trash
 
 from .config import DEFAULT_QUARANTINE_DIR
 from .database import db_session
+
+logger = logging.getLogger(__name__)
 
 
 def is_unsafe_local_path(path: str) -> bool:
@@ -132,8 +135,10 @@ def execute_safe_removal(
                     )
                 moved_count += 1
                 reclaimed_bytes += sz
-            except Exception as exc:
-                errors.append({"file_id": fid, "path": orig, "error": str(exc)})
+            except Exception:
+                # 🛡️ Sentinel: Log filesystem/trash failure server-side without leaking raw OS exception details
+                logger.exception("Failed to %s media file_id=%s", mode, fid)
+                errors.append({"file_id": fid, "path": orig, "error": "Failed to move file to quarantine or trash"})
 
     return {
         "batch_id": batch_id,
@@ -210,7 +215,9 @@ def restore_quarantined_files(file_ids: Optional[list[int]] = None, batch_id: Op
                 )
                 restored += 1
                 restored_bytes += r["size"]
-            except Exception as exc:
-                errors.append({"file_id": fid, "path": orig, "error": str(exc)})
+            except Exception:
+                # 🛡️ Sentinel: Log restore failure server-side without leaking raw OS exception details
+                logger.exception("Failed to restore quarantined media file_id=%s", fid)
+                errors.append({"file_id": fid, "path": orig, "error": "Failed to restore quarantined file"})
 
     return {"restored": restored, "restored_bytes": restored_bytes, "errors": errors}

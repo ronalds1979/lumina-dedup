@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import re
 import threading
@@ -16,6 +17,7 @@ from .database import db_session
 from .media_utils import HASHABLE_PHOTO_EXTENSIONS, open_image_preview
 from .scanner import TaskProgress
 
+logger = logging.getLogger(__name__)
 dedup_progress = TaskProgress()
 _dedup_lock = threading.Lock()
 
@@ -208,10 +210,12 @@ def run_exact_dedup() -> None:
         dedup_progress.message = f"Exact dedup complete: {len(grouped):,} duplicate groups found."
         dedup_progress.finished_at = time.time()
         dedup_progress.running = False
-    except Exception as exc:
+    except Exception:
+        # 🛡️ Sentinel: Log internal exception server-side without leaking SQLite/OS details via /api/dedup/status
+        logger.exception("Exact deduplication failed")
         dedup_progress.phase = "error"
-        dedup_progress.error = str(exc)
-        dedup_progress.message = f"Exact dedup failed: {exc}"
+        dedup_progress.error = "Exact deduplication failed. Check server logs for details."
+        dedup_progress.message = "Exact deduplication failed. Check server logs for details."
         dedup_progress.finished_at = time.time()
         dedup_progress.running = False
 
@@ -395,10 +399,12 @@ def run_visual_dedup(max_distance: int = 5) -> None:
         dedup_progress.message = f"Visual dedup complete: {group_count:,} similar groups found."
         dedup_progress.finished_at = time.time()
         dedup_progress.running = False
-    except Exception as exc:
+    except Exception:
+        # 🛡️ Sentinel: Log internal exception server-side without leaking SQLite/OS details via /api/dedup/status
+        logger.exception("Visual deduplication failed")
         dedup_progress.phase = "error"
-        dedup_progress.error = str(exc)
-        dedup_progress.message = f"Visual dedup failed: {exc}"
+        dedup_progress.error = "Visual deduplication failed. Check server logs for details."
+        dedup_progress.message = "Visual deduplication failed. Check server logs for details."
         dedup_progress.finished_at = time.time()
         dedup_progress.running = False
 
@@ -497,10 +503,12 @@ def run_burst_dedup(window_seconds: float = 3.0) -> None:
         dedup_progress.message = f"Burst & pattern clustering complete: {len(clusters):,} groups found."
         dedup_progress.finished_at = time.time()
         dedup_progress.running = False
-    except Exception as exc:
+    except Exception:
+        # 🛡️ Sentinel: Log internal exception server-side without leaking SQLite/OS details via /api/dedup/status
+        logger.exception("Burst clustering failed")
         dedup_progress.phase = "error"
-        dedup_progress.error = str(exc)
-        dedup_progress.message = f"Burst clustering failed: {exc}"
+        dedup_progress.error = "Burst clustering failed. Check server logs for details."
+        dedup_progress.message = "Burst clustering failed. Check server logs for details."
         dedup_progress.finished_at = time.time()
         dedup_progress.running = False
 

@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import logging
 import os
 import threading
 import time
@@ -16,6 +17,7 @@ from .database import db_session
 from .media_utils import MAX_PREVIEW_BYTES
 from .scanner import TaskProgress
 
+logger = logging.getLogger(__name__)
 semantic_progress = TaskProgress()
 _semantic_lock = threading.Lock()
 
@@ -351,10 +353,18 @@ def run_semantic_dedup(
         semantic_progress.message = "Gemini Semantic deduplication complete."
         semantic_progress.finished_at = time.time()
         semantic_progress.running = False
-    except Exception as exc:
+    except ValueError as exc:
         semantic_progress.phase = "error"
         semantic_progress.error = str(exc)
         semantic_progress.message = f"Semantic dedup failed: {exc}"
+        semantic_progress.finished_at = time.time()
+        semantic_progress.running = False
+    except Exception:
+        # 🛡️ Sentinel: Log unexpected SDK/SQLite errors server-side without leaking internals via /api/dedup/status
+        logger.exception("Semantic deduplication failed")
+        semantic_progress.phase = "error"
+        semantic_progress.error = "Semantic deduplication failed. Check server logs for details."
+        semantic_progress.message = "Semantic deduplication failed. Check server logs for details."
         semantic_progress.finished_at = time.time()
         semantic_progress.running = False
 

@@ -1,3 +1,4 @@
+import logging
 import os
 import stat
 import time
@@ -11,6 +12,8 @@ from PIL import Image, ExifTags
 from .config import ALL_MEDIA_EXTENSIONS, BASE_DIR, DATA_DIR, DEFAULT_QUARANTINE_DIR, PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 from .database import db_session
 from . import media_utils  # noqa: F401 - applies Image.MAX_IMAGE_PIXELS guard
+
+logger = logging.getLogger(__name__)
 
 IGNORED_DIRS = {
     ".lumina_quarantine",
@@ -293,10 +296,12 @@ def run_scan(paths: list[str], extract_exif: bool = True) -> None:
         scan_progress.message = f"Scan complete: {total_files:,} media files indexed."
         scan_progress.finished_at = time.time()
         scan_progress.running = False
-    except Exception as exc:
+    except Exception:
+        # 🛡️ Sentinel: Log internal exception server-side without exposing raw OS/SQLite error strings via /api/scan/status
+        logger.exception("Folder scan failed")
         scan_progress.phase = "error"
-        scan_progress.error = str(exc)
-        scan_progress.message = f"Scan failed: {exc}"
+        scan_progress.error = "Folder scan failed. Check server logs for details."
+        scan_progress.message = "Folder scan failed. Check server logs for details."
         scan_progress.finished_at = time.time()
         scan_progress.running = False
 

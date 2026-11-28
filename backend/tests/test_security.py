@@ -194,6 +194,24 @@ class TestNestedJunctionAndSemanticLimitSecurity(unittest.TestCase):
             ):
                 self.assertTrue(is_unsafe_local_path(nested))
 
+    def test_background_jobs_do_not_leak_internal_exception_strings(self):
+        import tempfile
+        from unittest.mock import patch
+        from app import dedup, scanner
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.scanner.db_session", side_effect=RuntimeError("sqlite3 secret C:\\internal\\schema.db")
+        ):
+            scanner.run_scan([tmpdir], extract_exif=False)
+            self.assertEqual(scanner.scan_progress.phase, "error")
+            self.assertNotIn("schema.db", scanner.scan_progress.error or "")
+            self.assertNotIn("schema.db", scanner.scan_progress.message or "")
+
+        with patch("app.dedup.db_session", side_effect=RuntimeError("internal db path leak")):
+            dedup.run_exact_dedup()
+            self.assertEqual(dedup.dedup_progress.phase, "error")
+            self.assertNotIn("internal db path leak", dedup.dedup_progress.error or "")
+
 
 if __name__ == "__main__":
     unittest.main()
